@@ -24,7 +24,7 @@
 </head>
 <body>
     <div id="info-box">
-        <h3>📍 地点详情</h3>
+        <h3>📍 地点详情 (OpenStreetMap)</h3>
         <p id="location-name" style="font-weight: bold; font-size: 1.1em;">点击地球仪上的任意地点...</p>
         <p id="location-coords" style="font-size: 0.9em; color: #ccc;"></p>
         <p id="location-details"></p>
@@ -35,8 +35,7 @@
     <script>
         // --- 全局常量和变量 ---
         const RADIUS = 2; // 地球仪半径
-        const API_KEY = 'YOUR_GOOGLE_MAPS_API_KEY'; // ⚠️ **请在此处替换您的 Google Maps API Key**
-
+        
         // --- DOM 元素 ---
         const INFO_BOX = document.getElementById('info-box');
         const NAME_ELEM = document.getElementById('location-name');
@@ -56,14 +55,13 @@
         const geometry = new THREE.SphereGeometry(RADIUS, 64, 64);
         const loader = new THREE.TextureLoader();
         
-        // ⚠️ 请确保您在同一目录下有一个名为 'world_map.jpg' 的世界地图纹理图片
+        // ⚠️ 确保您在同一目录下有一个名为 'world_map.jpg' 的世界地图纹理图片
         const texture = loader.load('./world_map.jpg', 
             () => { console.log("Texture loaded successfully."); },
             undefined, 
             (err) => { 
-                console.error('Error loading world_map.jpg. Please place the image in the same directory.', err);
-                // 加载失败时使用纯色材质作为后备
-                globe.material = new THREE.MeshBasicMaterial({ color: 0x0044aa });
+                console.error('Error loading world_map.jpg. Falling back to blue color.', err);
+                globe.material = new THREE.MeshPhongMaterial({ color: 0x0044aa, shininess: 15 });
             }
         );
 
@@ -140,43 +138,38 @@
             scene.add(marker);
         }
 
-        // --- 6. 获取地方详情 (API 调用) ---
+        // --- 6. 获取地方详情 (Nominatim API 调用 - 无需 Key) ---
 
         async function fetchLocationDetails(lat, lon) {
-            NAME_ELEM.textContent = '🌐 正在通过 API 加载...';
+            NAME_ELEM.textContent = '🌐 正在通过 Nominatim 加载...';
             COORDS_ELEM.textContent = `经度: ${lon}° | 纬度: ${lat}°`;
             DETAILS_ELEM.textContent = '';
             INFO_BOX.style.display = 'block';
 
-            if (API_KEY === 'YOUR_GOOGLE_MAPS_API_KEY') {
-                DETAILS_ELEM.textContent = '⚠️ 错误: 请先替换代码中的 Google Maps API Key!';
-                return;
-            }
-
-            const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lon}&key=${API_KEY}&language=zh-CN`;
+            // Nominatim 反向地理编码 API URL
+            const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&addressdetails=1&accept-language=zh-CN`;
 
             try {
                 const response = await fetch(url);
                 const data = await response.json();
 
-                if (data.status === 'OK' && data.results.length > 0) {
-                    const mainAddress = data.results[0].formatted_address;
+                if (data.address && data.display_name) {
+                    const displayName = data.display_name;
+                    const address = data.address;
                     
-                    const components = data.results[0].address_components;
-                    const countryComponent = components.find(c => c.types.includes('country'));
-                    
-                    const locationName = countryComponent ? countryComponent.long_name : (mainAddress || '未知地点');
+                    // 尝试提取主要地点名称（如城市、国家或显示名称的第一个元素）
+                    const locationName = address.city || address.country || displayName.split(',')[0];
 
                     NAME_ELEM.textContent = locationName;
-                    DETAILS_ELEM.textContent = `完整地址: ${mainAddress}`;
+                    DETAILS_ELEM.textContent = `完整地址: ${displayName}`;
 
                 } else {
                     NAME_ELEM.textContent = '未找到地点信息';
-                    DETAILS_ELEM.textContent = data.status === 'ZERO_RESULTS' ? '该区域没有详细记录。' : `API 状态: ${data.status} (检查密钥或配额)`;
+                    DETAILS_ELEM.textContent = 'Nominatim 未返回详细地址。';
                 }
             } catch (error) {
                 NAME_ELEM.textContent = '网络/Fetch 错误';
-                DETAILS_ELEM.textContent = '无法连接到地理编码服务。';
+                DETAILS_ELEM.textContent = '无法连接到 Nominatim 服务。';
                 console.error('Fetch error:', error);
             }
         }
