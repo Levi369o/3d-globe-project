@@ -20,12 +20,12 @@
             z-index: 10;
         }
         #info-box h3 { margin-top: 0; border-bottom: 1px solid #555; padding-bottom: 5px; }
-        /* 新增：链接样式 */
+        /* 链接样式 */
         .osm-link {
             color: #66ffff; 
             text-decoration: none; 
             font-weight: bold;
-            display: block; /* 链接独占一行 */
+            display: block; 
             margin-top: 10px;
             padding-top: 5px;
             border-top: 1px solid rgba(255, 255, 255, 0.2);
@@ -64,4 +64,16 @@
         scene.background = new THREE.Color(0x050510); 
         camera.position.z = 5;
 
-        // --- 2. 地球
+        // --- 2. 地球模型创建 ---
+        const geometry = new THREE.SphereGeometry(RADIUS, 64, 64);
+        const loader = new THREE.TextureLoader();
+        
+        // 确保您在同一目录下有一个名为 'world_map.jpg' 的世界地图纹理图片
+        const texture = loader.load('./world_map.jpg', 
+            () => { console.log("Texture loaded successfully."); },
+            undefined, 
+            (err) => { 
+                console.error('Error loading world_map.jpg. Falling back to blue color.', err);
+                // 确保即使纹理加载失败，球体也能显示（这是您看到蓝色球体的原因）
+                globe.material = new THREE.MeshPhongMaterial({ color: 0x0044aa, shininess: 15 });
+            }
