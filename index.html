@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>3D 互动地球仪</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        #info-box {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 15px;
+            width: 300px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border-radius: 8px;
+            display: none; /* 初始隐藏 */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            z-index: 10;
+        }
+        #info-box h3 { margin-top: 0; border-bottom: 1px solid #555; padding-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <div id="info-box">
+        <h3>📍 地点详情</h3>
+        <p id="location-name" style="font-weight: bold; font-size: 1.1em;">点击地球仪上的任意地点...</p>
+        <p id="location-coords" style="font-size: 0.9em; color: #ccc;"></p>
+        <p id="location-details"></p>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <script>
+        // --- 全局常量和变量 ---
+        const RADIUS = 2; // 地球仪半径
+        const API_KEY = 'YOUR_GOOGLE_MAPS_API_KEY'; // ⚠️ **请在此处替换您的 Google Maps API Key**
+
+        // --- DOM 元素 ---
+        const INFO_BOX = document.getElementById('info-box');
+        const NAME_ELEM = document.getElementById('location-name');
+        const COORDS_ELEM = document.getElementById('location-coords');
+        const DETAILS_ELEM = document.getElementById('location-details');
+
+        // --- 1. 场景、相机、渲染器初始化 ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+        scene.background = new THREE.Color(0x050510); 
+        camera.position.z = 5;
+
+        // --- 2. 地球模型创建 ---
+        const geometry = new THREE.SphereGeometry(RADIUS, 64, 64);
+        const loader = new THREE.TextureLoader();
+        
+        // ⚠️ 请确保您在同一目录下有一个名为 'world_map.jpg' 的世界地图纹理图片
+        const texture = loader.load('./world_map.jpg', 
+            () => { console.log("Texture loaded successfully."); },
+            undefined, 
+            (err) => { 
+                console.error('Error loading world_map.jpg. Please place the image in the same directory.', err);
+                // 加载失败时使用纯色材质作为后备
+                globe.material = new THREE.MeshBasicMaterial({ color: 0x0044aa });
+            }
+        );
+
+        const material = new THREE.MeshPhongMaterial({
+            map: texture,
+            specular: 0x333333,
+            shininess: 15
+        });
+        const globe = new THREE.Mesh(geometry, material);
+        scene.add(globe);
+
+        // --- 3. 光源 ---
+        const ambientLight = new THREE.AmbientLight(0xaaaaaa, 0.5);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        directionalLight.position.set(5, 3, 5).normalize();
+        scene.add(directionalLight);
+
+        // --- 4. 动画循环 (自动旋转) ---
+        function animate() {
+            requestAnimationFrame(animate);
+            globe.rotation.y += 0.002; 
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // --- 5. 射线检测 (Raycasting) 和点击交互 ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        function onDocumentMouseDown(event) {
+            // 归一化设备坐标 (-1 到 +1)
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            // 只与地球仪进行相交检测
+            const intersects = raycaster.intersectObjects([globe]);
+
+            if (intersects.length > 0) {
+                const intersectionPoint = intersects[0].point;
+
+                // 坐标转换
+                const coords = cartesianToLatLon(intersectionPoint);
+                const lat = coords.lat.toFixed(4);
+                const lon = coords.lon.toFixed(4);
+                
+                // 添加标记并获取详情
+                addMarker(intersectionPoint);
+                fetchLocationDetails(lat, lon);
+            }
+        }
+
+        window.addEventListener('mousedown', onDocumentMouseDown, false);
+
+        // 辅助函数：笛卡尔坐标 (x, y, z) 转换为 经纬度 (lat, lon)
+        function cartesianToLatLon(vec) {
+            const lon = Math.atan2(vec.z, vec.x) * (180 / Math.PI);
+            const lat = Math.asin(vec.y / RADIUS) * (180 / Math.PI);
+            return { lat, lon };
+        }
+
+        // 添加一个简单的标记点
+        function addMarker(position) {
+            // 清除旧的标记
+            scene.children = scene.children.filter(child => !child.isMarker);
+
+            const markerGeometry = new THREE.SphereGeometry(0.03, 16, 16);
+            const markerMaterial = new THREE.MeshBasicMaterial({ color: 0xff4500 });
+            const marker = new THREE.Mesh(markerGeometry, markerMaterial);
+            marker.position.copy(position).multiplyScalar(1.001); 
+            marker.isMarker = true; 
+            scene.add(marker);
+        }
+
+        // --- 6. 获取地方详情 (API 调用) ---
+
+        async function fetchLocationDetails(lat, lon) {
+            NAME_ELEM.textContent = '🌐 正在通过 API 加载...';
+            COORDS_ELEM.textContent = `经度: ${lon}° | 纬度: ${lat}°`;
+            DETAILS_ELEM.textContent = '';
+            INFO_BOX.style.display = 'block';
+
+            if (API_KEY === 'YOUR_GOOGLE_MAPS_API_KEY') {
+                DETAILS_ELEM.textContent = '⚠️ 错误: 请先替换代码中的 Google Maps API Key!';
+                return;
+            }
+
+            const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lon}&key=${API_KEY}&language=zh-CN`;
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.status === 'OK' && data.results.length > 0) {
+                    const mainAddress = data.results[0].formatted_address;
+                    
+                    const components = data.results[0].address_components;
+                    const countryComponent = components.find(c => c.types.includes('country'));
+                    
+                    const locationName = countryComponent ? countryComponent.long_name : (mainAddress || '未知地点');
+
+                    NAME_ELEM.textContent = locationName;
+                    DETAILS_ELEM.textContent = `完整地址: ${mainAddress}`;
+
+                } else {
+                    NAME_ELEM.textContent = '未找到地点信息';
+                    DETAILS_ELEM.textContent = data.status === 'ZERO_RESULTS' ? '该区域没有详细记录。' : `API 状态: ${data.status} (检查密钥或配额)`;
+                }
+            } catch (error) {
+                NAME_ELEM.textContent = '网络/Fetch 错误';
+                DETAILS_ELEM.textContent = '无法连接到地理编码服务。';
+                console.error('Fetch error:', error);
+            }
+        }
+
+        // --- 7. 窗口大小调整处理 ---
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }, false);
+    </script>
+</body>
+</html>
