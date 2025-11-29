@@ -20,6 +20,19 @@
             z-index: 10;
         }
         #info-box h3 { margin-top: 0; border-bottom: 1px solid #555; padding-bottom: 5px; }
+        /* 新增：链接样式 */
+        .osm-link {
+            color: #66ffff; 
+            text-decoration: none; 
+            font-weight: bold;
+            display: block; /* 链接独占一行 */
+            margin-top: 10px;
+            padding-top: 5px;
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .osm-link:hover {
+            color: #00cccc;
+        }
     </style>
 </head>
 <body>
@@ -51,135 +64,4 @@
         scene.background = new THREE.Color(0x050510); 
         camera.position.z = 5;
 
-        // --- 2. 地球模型创建 ---
-        const geometry = new THREE.SphereGeometry(RADIUS, 64, 64);
-        const loader = new THREE.TextureLoader();
-        
-        // ⚠️ 确保您在同一目录下有一个名为 'world_map.jpg' 的世界地图纹理图片
-        const texture = loader.load('./world_map.jpg', 
-            () => { console.log("Texture loaded successfully."); },
-            undefined, 
-            (err) => { 
-                console.error('Error loading world_map.jpg. Falling back to blue color.', err);
-                globe.material = new THREE.MeshPhongMaterial({ color: 0x0044aa, shininess: 15 });
-            }
-        );
-
-        const material = new THREE.MeshPhongMaterial({
-            map: texture,
-            specular: 0x333333,
-            shininess: 15
-        });
-        const globe = new THREE.Mesh(geometry, material);
-        scene.add(globe);
-
-        // --- 3. 光源 ---
-        const ambientLight = new THREE.AmbientLight(0xaaaaaa, 0.5);
-        scene.add(ambientLight);
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
-        directionalLight.position.set(5, 3, 5).normalize();
-        scene.add(directionalLight);
-
-        // --- 4. 动画循环 (自动旋转) ---
-        function animate() {
-            requestAnimationFrame(animate);
-            globe.rotation.y += 0.002; 
-            renderer.render(scene, camera);
-        }
-        animate();
-
-        // --- 5. 射线检测 (Raycasting) 和点击交互 ---
-        const raycaster = new THREE.Raycaster();
-        const mouse = new THREE.Vector2();
-
-        function onDocumentMouseDown(event) {
-            // 归一化设备坐标 (-1 到 +1)
-            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-            raycaster.setFromCamera(mouse, camera);
-
-            // 只与地球仪进行相交检测
-            const intersects = raycaster.intersectObjects([globe]);
-
-            if (intersects.length > 0) {
-                const intersectionPoint = intersects[0].point;
-
-                // 坐标转换
-                const coords = cartesianToLatLon(intersectionPoint);
-                const lat = coords.lat.toFixed(4);
-                const lon = coords.lon.toFixed(4);
-                
-                // 添加标记并获取详情
-                addMarker(intersectionPoint);
-                fetchLocationDetails(lat, lon);
-            }
-        }
-
-        window.addEventListener('mousedown', onDocumentMouseDown, false);
-
-        // 辅助函数：笛卡尔坐标 (x, y, z) 转换为 经纬度 (lat, lon)
-        function cartesianToLatLon(vec) {
-            const lon = Math.atan2(vec.z, vec.x) * (180 / Math.PI);
-            const lat = Math.asin(vec.y / RADIUS) * (180 / Math.PI);
-            return { lat, lon };
-        }
-
-        // 添加一个简单的标记点
-        function addMarker(position) {
-            // 清除旧的标记
-            scene.children = scene.children.filter(child => !child.isMarker);
-
-            const markerGeometry = new THREE.SphereGeometry(0.03, 16, 16);
-            const markerMaterial = new THREE.MeshBasicMaterial({ color: 0xff4500 });
-            const marker = new THREE.Mesh(markerGeometry, markerMaterial);
-            marker.position.copy(position).multiplyScalar(1.001); 
-            marker.isMarker = true; 
-            scene.add(marker);
-        }
-
-        // --- 6. 获取地方详情 (Nominatim API 调用 - 无需 Key) ---
-
-        async function fetchLocationDetails(lat, lon) {
-            NAME_ELEM.textContent = '🌐 正在通过 Nominatim 加载...';
-            COORDS_ELEM.textContent = `经度: ${lon}° | 纬度: ${lat}°`;
-            DETAILS_ELEM.textContent = '';
-            INFO_BOX.style.display = 'block';
-
-            // Nominatim 反向地理编码 API URL
-            const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&addressdetails=1&accept-language=zh-CN`;
-
-            try {
-                const response = await fetch(url);
-                const data = await response.json();
-
-                if (data.address && data.display_name) {
-                    const displayName = data.display_name;
-                    const address = data.address;
-                    
-                    // 尝试提取主要地点名称（如城市、国家或显示名称的第一个元素）
-                    const locationName = address.city || address.country || displayName.split(',')[0];
-
-                    NAME_ELEM.textContent = locationName;
-                    DETAILS_ELEM.textContent = `完整地址: ${displayName}`;
-
-                } else {
-                    NAME_ELEM.textContent = '未找到地点信息';
-                    DETAILS_ELEM.textContent = 'Nominatim 未返回详细地址。';
-                }
-            } catch (error) {
-                NAME_ELEM.textContent = '网络/Fetch 错误';
-                DETAILS_ELEM.textContent = '无法连接到 Nominatim 服务。';
-                console.error('Fetch error:', error);
-            }
-        }
-
-        // --- 7. 窗口大小调整处理 ---
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }, false);
-    </script>
-</body>
-</html>
+        // --- 2. 地球
